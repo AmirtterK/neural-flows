@@ -2,6 +2,8 @@
 
 An interactive 3D neural network visualizer built with Next.js, Three.js, and Tailwind CSS.
 
+**Live demo:** [https://neural-flows.vercel.app/](https://neural-flows.vercel.app/)
+
 Neural Flows visualizes forward propagation through a multi-layer perceptron (MLP) trained to classify handwritten letters (A-Z, 26 classes). Inference runs entirely in the browser and requires no Python, PyTorch, or backend services.
 
 ---
