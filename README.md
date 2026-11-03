@@ -1,8 +1,8 @@
-# Neural Flow 🧠✨
+# Neural Flows 🧠✨
 
 An interactive, high-performance **3D Neural Network Visualizer** built with **Next.js**, **Three.js**, and **Tailwind CSS**. 
 
-**Neural Flow** visualizes real-time forward propagation through a multi-layer perceptron (MLP) trained to classify uppercase letters (**A–Z**, 26 classes) directly in the browser with zero Python, PyTorch, or backend requirements.
+**Neural Flows** visualizes real-time forward propagation through a multi-layer perceptron (MLP) trained to classify uppercase letters (**A–Z**, 26 classes) directly in the browser with zero Python, PyTorch, or backend requirements.
 
 ---
 
@@ -76,8 +76,8 @@ Model weights and biases are bundled directly as JSON in `data/model_weights.jso
 
 ```bash
 # Clone the repository
-git clone https://github.com/AmirtterK/neural-flow.git
-cd neural-flow
+git clone https://github.com/AmirtterK/neural-flows.git
+cd neural-flows
 
 # Install dependencies
 npm install
