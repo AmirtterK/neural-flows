@@ -1133,7 +1133,7 @@ export default function NeuralVisualizerApp() {
   return (
     <div className="relative flex h-dvh w-full flex-col overflow-hidden bg-black text-white select-none font-sans md:block">
       {/* 3D WebGL Canvas Container */}
-      <div ref={mountRef} className="relative h-[40dvh] w-full shrink-0 z-0 cursor-grab active:cursor-grabbing md:absolute md:inset-0 md:h-auto" />
+      <div ref={mountRef} className="relative h-[52dvh] w-full shrink-0 z-0 cursor-grab active:cursor-grabbing md:absolute md:inset-0 md:h-auto" />
 
       {/* Top Instructions Banner */}
       <div className="absolute top-2 md:top-4 left-1/2 -translate-x-1/2 z-10 max-w-[calc(100%-1rem)] px-3 md:px-5 py-1.5 md:py-2 rounded-full bg-black/85 backdrop-blur-md border border-white/20 shadow-2xl text-[11px] md:text-xs text-neutral-400 flex items-center gap-4 pointer-events-none">
@@ -1389,7 +1389,7 @@ export default function NeuralVisualizerApp() {
       )}
 
       {/* Floating Bottom Action Buttons */}
-      <div className="absolute top-[calc(40dvh-3rem)] left-3 md:top-auto md:bottom-6 md:left-6 z-10 flex items-center gap-3">
+      <div className="absolute top-[calc(52dvh-3rem)] left-3 md:top-auto md:bottom-6 md:left-6 z-10 flex items-center gap-3">
         <button
           onClick={() => setSettingsOpen(true)}
           className="w-10 h-10 rounded-full bg-black/85 hover:bg-neutral-900 border border-white/20 shadow-xl flex items-center justify-center text-lg text-white transition hover:scale-105 active:scale-95"
