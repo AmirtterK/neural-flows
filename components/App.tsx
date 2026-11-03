@@ -7,7 +7,7 @@ const NeuralVisualizerApp = dynamic(() => import('./NeuralVisualizerApp'), { ssr
 
 export default function App() {
   return (
-    <main className="relative h-screen w-screen overflow-hidden bg-black">
+    <main className="relative h-dvh w-full overflow-hidden bg-black">
       <NeuralVisualizerApp />
     </main>
   )

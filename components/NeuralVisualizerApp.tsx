@@ -150,6 +150,10 @@ export default function NeuralVisualizerApp() {
     // Camera: (-18, 6, 18) looking at (0, 0, 0)
     const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 200)
     camera.position.set(-18, 6, 18)
+    // Pull the camera back on narrow (portrait) viewports so the whole network fits
+    if (width / height < 1.6) {
+      camera.position.multiplyScalar(Math.min(2, 1.6 / (width / height)))
+    }
 
     // Renderer
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
@@ -1127,23 +1131,28 @@ export default function NeuralVisualizerApp() {
     .sort((a, b) => b.prob - a.prob)
 
   return (
-    <div className="relative w-screen h-screen overflow-hidden bg-black text-white select-none font-sans">
+    <div className="relative flex h-dvh w-full flex-col overflow-hidden bg-black text-white select-none font-sans md:block">
       {/* 3D WebGL Canvas Container */}
-      <div ref={mountRef} className="absolute inset-0 z-0 cursor-grab active:cursor-grabbing" />
+      <div ref={mountRef} className="relative h-[40dvh] w-full shrink-0 z-0 cursor-grab active:cursor-grabbing md:absolute md:inset-0 md:h-auto" />
 
       {/* Top Instructions Banner */}
-      <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 px-5 py-2 rounded-full bg-black/85 backdrop-blur-md border border-white/20 shadow-2xl text-xs text-neutral-400 flex items-center gap-4 pointer-events-none">
-        <div>
+      <div className="absolute top-2 md:top-4 left-1/2 -translate-x-1/2 z-10 max-w-[calc(100%-1rem)] px-3 md:px-5 py-1.5 md:py-2 rounded-full bg-black/85 backdrop-blur-md border border-white/20 shadow-2xl text-[11px] md:text-xs text-neutral-400 flex items-center gap-4 pointer-events-none">
+        <div className="md:hidden whitespace-nowrap">
+          <span className="text-white font-semibold">Drag</span> rotate &bull; <span className="text-white font-semibold">Pinch</span> zoom &bull; <span className="text-white font-semibold">Tap</span> neuron
+        </div>
+        <div className="hidden md:block">
           <span className="text-white font-semibold">Draw a letter:</span> Click & drag on grid (A–Z)
         </div>
-        <div className="w-px h-3 bg-white/20" />
-        <div>
+        <div className="hidden md:block w-px h-3 bg-white/20" />
+        <div className="hidden md:block">
           <span className="text-white font-semibold">3D Controls:</span> Left drag = Rotate • Right drag = Pan • Scroll = Zoom
         </div>
       </div>
 
+      {/* Panels: scrollable column below the 3D view on mobile, floating overlays on desktop */}
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain p-3 pb-6 md:contents">
       {/* Left Overlay: 28x28 Drawing SketchPad + Alphabet Presets */}
-      <div className="absolute top-16 left-6 z-10 flex flex-col gap-2">
+      <div className="relative z-10 flex flex-col gap-2 md:absolute md:top-16 md:left-6">
         <div className="p-4 rounded-xl bg-black/85 backdrop-blur-xl border border-white/20 shadow-[0_4px_30px_rgba(0,0,0,0.8)] flex flex-col gap-3">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold tracking-wider text-neutral-400 uppercase">Draw a letter</span>
@@ -1159,7 +1168,7 @@ export default function NeuralVisualizerApp() {
           <div className="flex gap-3">
             {/* 28x28 DOM Grid */}
             <div
-              className="grid grid-cols-28 grid-rows-28 w-56 h-56 bg-black rounded-lg border border-white/20 p-0.5 cursor-crosshair touch-none select-none"
+              className="grid grid-cols-28 grid-rows-28 w-[min(54vw,14rem)] aspect-square shrink-0 self-start md:w-56 md:h-56 bg-black rounded-lg border border-white/20 p-0.5 cursor-crosshair touch-none select-none"
               style={{
                 display: 'grid',
                 gridTemplateColumns: 'repeat(28, 1fr)',
@@ -1190,7 +1199,7 @@ export default function NeuralVisualizerApp() {
             </div>
 
             {/* Alphabet preset buttons A-Z (4 columns x 7 rows, NO scrollbar) */}
-            <div className="grid grid-cols-4 gap-1 w-32 h-56 select-none overflow-hidden content-between">
+            <div className="grid grid-cols-4 gap-1 min-w-0 flex-1 self-stretch md:flex-none md:w-32 md:h-56 select-none overflow-hidden content-between">
               {LETTERS.map((letter, idx) => {
                 const isTop = maxProbIndex === idx && hasDrawn
                 const isWide = letter === 'Y' || letter === 'Z'
@@ -1215,7 +1224,7 @@ export default function NeuralVisualizerApp() {
       </div>
 
       {/* Right Overlay: Prediction Chart & Network Overview */}
-      <div className="absolute top-16 right-6 z-10 flex flex-col gap-3 w-76">
+      <div className="relative z-10 flex w-full flex-col gap-3 md:absolute md:top-16 md:right-6 md:w-76">
         {/* Probabilities / Predictions */}
         <div className="p-4 rounded-xl bg-black/85 backdrop-blur-xl border border-white/20 shadow-[0_4px_30px_rgba(0,0,0,0.8)] flex flex-col gap-2.5">
           <div className="flex items-center justify-between pb-1 border-b border-white/10">
@@ -1280,9 +1289,11 @@ export default function NeuralVisualizerApp() {
         </div>
       </div>
 
+      </div>
+
       {/* Selected Neuron Detail Inspector */}
       {selectedDetail && (
-        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20 w-[420px] max-w-[90vw] p-4 rounded-xl bg-black/95 backdrop-blur-2xl border border-white/30 shadow-[0_0_30px_rgba(255,255,255,0.15)] flex flex-col gap-3 overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-200">
+        <div className="fixed inset-x-3 bottom-3 max-h-[55dvh] md:absolute md:inset-x-auto md:bottom-6 md:left-1/2 md:-translate-x-1/2 md:max-h-none z-20 md:w-[420px] p-4 rounded-xl bg-black/95 backdrop-blur-2xl border border-white/30 shadow-[0_0_30px_rgba(255,255,255,0.15)] flex flex-col gap-3 overflow-y-auto md:overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-200">
           <div className="flex items-center justify-between pb-2 border-b border-white/10">
             <div>
               <h3 className="text-sm font-bold text-white flex items-center gap-1.5">
@@ -1378,7 +1389,7 @@ export default function NeuralVisualizerApp() {
       )}
 
       {/* Floating Bottom Action Buttons */}
-      <div className="absolute bottom-6 left-6 z-10 flex items-center gap-3">
+      <div className="absolute top-[calc(40dvh-3rem)] left-3 md:top-auto md:bottom-6 md:left-6 z-10 flex items-center gap-3">
         <button
           onClick={() => setSettingsOpen(true)}
           className="w-10 h-10 rounded-full bg-black/85 hover:bg-neutral-900 border border-white/20 shadow-xl flex items-center justify-center text-lg text-white transition hover:scale-105 active:scale-95"
@@ -1404,7 +1415,7 @@ export default function NeuralVisualizerApp() {
       {/* Settings Modal */}
       {settingsOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
-          <div className="w-full max-w-md p-6 rounded-2xl bg-neutral-950 border border-white/20 shadow-2xl flex flex-col gap-5 text-sm">
+          <div className="w-full max-w-md max-h-[90dvh] overflow-y-auto p-6 rounded-2xl bg-neutral-950 border border-white/20 shadow-2xl flex flex-col gap-5 text-sm">
             <div className="flex items-center justify-between border-b border-white/10 pb-3">
               <h3 className="text-base font-bold text-white">Advanced Settings</h3>
               <button onClick={() => setSettingsOpen(false)} className="text-neutral-400 hover:text-white p-1">
