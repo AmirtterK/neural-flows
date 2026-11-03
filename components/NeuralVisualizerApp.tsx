@@ -414,7 +414,8 @@ export default function NeuralVisualizerApp() {
     const IDLE_STEP = 1.3 // seconds per layer hop (flash + travel)
     const PULSE_DUR = 1.0 // seconds for a pulse to cross one set of connections
     const IDLE_LOOP = arch.length * IDLE_STEP
-    const IDLE_LINE = { r: 0.025, g: 0.035, b: 0.06 } // dim resting color of connections
+    const IDLE_LINE = { r: 0.01, g: 0.013, b: 0.024 } // dim resting color of connections
+    const IDLE_SPEED = 0.85 // playback speed of the idle animation (1 = original)
     const idleUniform = { value: 0 }
     const pulseUniforms = layers.map(() => ({ value: -10 }))
 
@@ -1067,7 +1068,7 @@ export default function NeuralVisualizerApp() {
           wasIdle = true
           idleClock = 0
         }
-        idleClock = (idleClock + dt) % IDLE_LOOP
+        idleClock = (idleClock + dt * IDLE_SPEED) % IDLE_LOOP
         updateIdleVisuals(idleClock)
       } else if (wasIdle) {
         wasIdle = false
