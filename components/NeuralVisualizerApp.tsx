@@ -36,6 +36,16 @@ interface SelectionDetail {
   nextLayerSize: number | null
 }
 
+// Precomputed data for one run of the "Animate" (prediction replay) mode
+interface AnimPlan {
+  top: number // index of the predicted letter
+  active: number[][] // per layer: indices of the neurons that take part
+  settled: Float32Array[] // per layer: final node colours (snapshot of the normal view)
+  connSettled: Record<number, Float32Array> // per connection group: final colours
+  done: boolean[] // per layer: flash finished
+  revealed: boolean[] // per connection group: already switched on
+}
+
 const LETTERS = weightsData.classes || Array.from('ABCDEFGHIJKLMNOPQRSTUVWXYZ')
 const BRUSH_STRENGTH = 0.95
 
@@ -131,6 +141,7 @@ export default function NeuralVisualizerApp() {
   const [probabilities, setProbabilities] = useState<number[]>(new Array(26).fill(0))
   const [selectedDetail, setSelectedDetail] = useState<SelectionDetail | null>(null)
   const [hasDrawn, setHasDrawn] = useState(false)
+  const [isAnimating, setIsAnimating] = useState(false)
 
   // References to visualizer controllers
   const visualizerRef = useRef<any>(null)
@@ -151,6 +162,7 @@ export default function NeuralVisualizerApp() {
     const container = mountRef.current
     let animationFrameId: number
     let isDisposed = false
+    setIsAnimating(false)
 
     // Dimensions
     const width = container.clientWidth || window.innerWidth
@@ -431,6 +443,7 @@ export default function NeuralVisualizerApp() {
     const IDLE_LINE = { r: 0.01, g: 0.013, b: 0.024 } // dim resting color of connections
     const IDLE_SPEED = 0.765 // playback speed of the idle animation (1 = original)
     const idleUniform = { value: 0 }
+    const animUniform = { value: 0 } // 1 while the Animate mode runs (enables pulses + active-only mask)
     const pulseUniforms = layers.map(() => ({ value: -10 }))
 
     // Adds a light band that travels from source (t=0) to target (t=1) along each connection cylinder
@@ -438,17 +451,22 @@ export default function NeuralVisualizerApp() {
       mat.onBeforeCompile = (shader) => {
         shader.uniforms.uPulse = pulseUniforms[layerIdx]
         shader.uniforms.uIdle = idleUniform
+        shader.uniforms.uAnim = animUniform
         shader.vertexShader = shader.vertexShader
           .replace('#include <common>', '#include <common>\nvarying float vT;')
           .replace('#include <begin_vertex>', '#include <begin_vertex>\nvT = position.y + 0.5;')
         shader.fragmentShader = shader.fragmentShader
-          .replace('#include <common>', '#include <common>\nvarying float vT;\nuniform float uPulse;\nuniform float uIdle;')
+          .replace('#include <common>', '#include <common>\nvarying float vT;\nuniform float uPulse;\nuniform float uIdle;\nuniform float uAnim;')
           .replace(
             '#include <color_fragment>',
             `#include <color_fragment>
             float pulseD = uPulse - vT;
             float pulseBand = pulseD >= 0.0 ? exp(-pulseD * 16.0) : exp(pulseD * 70.0);
-            diffuseColor.rgb += vec3(0.55, 0.8, 1.0) * pulseBand * 1.6 * uIdle;`
+            float litMask = 1.0;
+            #ifdef USE_COLOR
+            litMask = mix(1.0, step(0.1, max(vColor.r, max(vColor.g, vColor.b))), uAnim);
+            #endif
+            diffuseColor.rgb += vec3(0.55, 0.8, 1.0) * pulseBand * 1.6 * (uIdle + uAnim) * litMask;`
           )
       }
       mat.customProgramCacheKey = () => 'connection-pulse'
@@ -763,6 +781,7 @@ export default function NeuralVisualizerApp() {
     }
 
     const selectNeuron = (lIdx: number, nIdx: number) => {
+      endPredictAnim(false) // selecting a neuron always stops the Animate mode
       if (activeSelectedNeuron?.layerIndex === lIdx && activeSelectedNeuron?.neuronIndex === nIdx) {
         clearSelection()
         return
@@ -775,6 +794,7 @@ export default function NeuralVisualizerApp() {
     }
 
     const clearSelection = () => {
+      endPredictAnim(false) // Esc / clearing also stops a running animation
       activeSelectedNeuron = null
       selectionGlowSprite.visible = false
       clearSelectionConnMeshes()
@@ -932,8 +952,153 @@ export default function NeuralVisualizerApp() {
       })
     }
 
+    // ---- Animate mode: replays the forward pass through the ACTIVE neurons/connections only and
+    // ends on the predicted letter. It is mutually exclusive with idle mode (idle needs an empty
+    // canvas and no running animation) and with neuron selection (selecting/Esc/drawing/reset/
+    // presets/settings all call endPredictAnim first).
+    const ANIM_STEP = 0.9 // seconds per layer hop
+    const ANIM_DELAY = 0.2 // pulse starts this long after its source layer flashes
+    const ANIM_PULSE = 0.7 // seconds for a pulse to cross a set of connections
+    const ANIM_HOLD = 1.8 // how long the predicted letter stays lit at the end
+    const ANIM_TOTAL = (arch.length - 1) * ANIM_STEP + ANIM_HOLD
+    const predictAnim: { active: boolean; t: number; plan: AnimPlan | null } = { active: false, t: 0, plan: null }
+
+    const endPredictAnim = (restore = true) => {
+      if (!predictAnim.active) return
+      predictAnim.active = false
+      predictAnim.plan = null
+      animUniform.value = 0
+      pulseUniforms.forEach((u) => (u.value = -10))
+      outputLabels.forEach((sprite) => sprite.scale.set(0.38, 0.38, 0.38))
+      if (!activeSelectedNeuron) selectionGlowSprite.visible = false
+      if (restore) applyColors()
+      setIsAnimating(false)
+    }
+
+    const startPredictAnim = () => {
+      if (predictAnim.active) return
+      const last = arch.length - 1
+      const outVals = lastActivations[last]
+      if (!outVals || !gridValuesRef.current.some((v) => v > 0.02)) return
+      if (activeSelectedNeuron) clearSelection()
+      applyColors() // make sure every mesh holds its normal colours before they are snapshotted
+
+      let top = 0
+      for (let i = 1; i < outVals.length; i++) if (outVals[i] > outVals[top]) top = i
+
+      const plan: AnimPlan = { top, active: [], settled: [], connSettled: {}, done: [], revealed: [] }
+      layerMeshes.forEach((lm, lIdx) => {
+        const vals = lastActivations[lIdx]
+        const active: number[] = []
+        if (lIdx === 0) {
+          for (let i = 0; i < vals.length; i++) if (gridValuesRef.current[i] > 0.02) active.push(i)
+        } else if (lIdx === last) {
+          active.push(top) // only the predicted letter lights up
+        } else {
+          const scale = maxAbsValue(vals) || 1
+          for (let i = 0; i < vals.length; i++) if (vals[i] / scale > 0.05) active.push(i)
+        }
+        const settled = Float32Array.from(lm.mesh.instanceColor!.array as Float32Array)
+        if (lIdx === last) {
+          settled[top * 3] = 0.0
+          settled[top * 3 + 1] = 0.96
+          settled[top * 3 + 2] = 0.63
+        }
+        plan.active[lIdx] = active
+        plan.settled[lIdx] = settled
+        plan.done[lIdx] = false
+        // everything starts dark; active nodes light up when the wave reaches their layer
+        const base = lm.type === 'input' ? 0.06 : lm.type === 'output' ? 0.1 : 0.08
+        for (let i = 0; i < lm.positions.length; i++) lm.mesh.setColorAt(i, tempColor.setRGB(base, base, base))
+        lm.mesh.instanceColor!.needsUpdate = true
+      })
+      connectionGroups.forEach((g) => {
+        plan.connSettled[g.sourceLayer] = Float32Array.from(g.mesh.instanceColor!.array as Float32Array)
+        plan.revealed[g.sourceLayer] = false
+        for (let i = 0; i < g.connections.length; i++) {
+          g.mesh.setColorAt(i, tempColor.setRGB(IDLE_LINE.r, IDLE_LINE.g, IDLE_LINE.b))
+        }
+        g.mesh.instanceColor!.needsUpdate = true
+      })
+
+      pulseUniforms.forEach((u) => (u.value = -10))
+      animUniform.value = 1
+      predictAnim.plan = plan
+      predictAnim.t = 0
+      predictAnim.active = true
+      setIsAnimating(true)
+    }
+
+    const updatePredictAnim = (t: number) => {
+      const plan = predictAnim.plan
+      if (!plan) return
+      const last = arch.length - 1
+
+      // Connections: a light pulse crosses each group; active connections switch on as it starts.
+      // The shader masks out black (inactive) connections while animUniform is 1.
+      connectionGroups.forEach((g) => {
+        const l = g.sourceLayer
+        const p = (t - (l * ANIM_STEP + ANIM_DELAY)) / ANIM_PULSE
+        pulseUniforms[l].value = p >= 0 && p <= 1.08 ? p : -10
+        if (p >= 0 && !plan.revealed[l]) {
+          plan.revealed[l] = true
+          const colors = g.mesh.instanceColor!
+          const arr = colors.array as Float32Array
+          arr.set(plan.connSettled[l])
+          if (l === last - 1) {
+            // final hop: only the connections into the predicted letter
+            g.connections.forEach((c, i) => {
+              if (c.targetIndex !== plan.top) {
+                arr[i * 3] = 0
+                arr[i * 3 + 1] = 0
+                arr[i * 3 + 2] = 0
+              }
+            })
+          }
+          colors.needsUpdate = true
+        }
+      })
+
+      // Nodes: active ones flash, then settle on their normal activation colour
+      layerMeshes.forEach((lm, lIdx) => {
+        if (plan.done[lIdx]) return
+        const start = lIdx * ANIM_STEP
+        if (t < start) return
+        const settling = t - start < 1.0
+        const f = settling ? flashAt(t, start) : 0
+        const hi = lIdx === 0 ? [0.9, 0.95, 1.0] : lIdx === last ? [0.8, 1.0, 0.92] : [0.75, 0.88, 1.0]
+        const settled = plan.settled[lIdx]
+        plan.active[lIdx].forEach((i) => {
+          const r = settled[i * 3]
+          const g = settled[i * 3 + 1]
+          const b = settled[i * 3 + 2]
+          lm.mesh.setColorAt(i, tempColor.setRGB(r + (hi[0] - r) * f, g + (hi[1] - g) * f, b + (hi[2] - b) * f))
+        })
+        lm.mesh.instanceColor!.needsUpdate = true
+        if (!settling) plan.done[lIdx] = true
+      })
+
+      // Predicted letter: enlarged label + glow until the animation ends
+      const outStart = last * ANIM_STEP
+      if (t >= outStart) {
+        const f = flashAt(t, outStart)
+        const label = outputLabels[plan.top]
+        if (label) {
+          const s = 0.38 * (1.3 + 0.6 * f)
+          label.scale.set(s, s, s)
+        }
+        const glow = Math.max(outputNodeRadius * 3.5, 0.25) * (1 + 0.5 * f)
+        selectionGlowSprite.position.copy(layerMeshes[last].positions[plan.top])
+        selectionGlowSprite.scale.set(glow, glow, 1)
+        selectionGlowSprite.visible = true
+      }
+
+      if (t >= ANIM_TOTAL) endPredictAnim()
+    }
+
     // Forward propagation function
     const propagate = (pixels: Float32Array) => {
+      endPredictAnim(false) // any change to the drawing cancels the Animate mode
       const isCanvasEmpty = !pixels.some((p) => p > 0.02)
       setHasDrawn(!isCanvasEmpty)
 
@@ -1038,7 +1203,7 @@ export default function NeuralVisualizerApp() {
       hits.sort((a, b) => a.dist - b.dist)
       if (hits.length > 0) {
         selectNeuron(hits[0].lIdx, hits[0].nIdx)
-      } else {
+      } else if (!predictAnim.active) {
         clearSelection()
       }
     }
@@ -1075,7 +1240,7 @@ export default function NeuralVisualizerApp() {
       const dt = Math.min(0.05, Math.max(0, (time - lastFrameTime) / 1000))
       lastFrameTime = time
       // Idle animation only plays with an empty canvas AND no selected neuron
-      const idle = !activeSelectedNeuron && !gridValuesRef.current.some((v) => v > 0.02)
+      const idle = !predictAnim.active && !activeSelectedNeuron && !gridValuesRef.current.some((v) => v > 0.02)
       idleBlend += ((idle ? 1 : 0) - idleBlend) * (1 - Math.exp(-6 * dt))
       idleUniform.value = idleBlend
       if (idle) {
@@ -1089,7 +1254,12 @@ export default function NeuralVisualizerApp() {
         wasIdle = false
         pulseUniforms.forEach((u) => (u.value = -10))
         outputLabels.forEach((sprite) => sprite.scale.set(0.38, 0.38, 0.38))
-        applyColors()
+        if (!predictAnim.active) applyColors()
+      }
+
+      if (predictAnim.active) {
+        predictAnim.t += dt
+        updatePredictAnim(predictAnim.t)
       }
 
       controls.update()
@@ -1110,7 +1280,10 @@ export default function NeuralVisualizerApp() {
     visualizerRef.current = {
       propagate,
       clearSelection,
+      startPredictAnimation: startPredictAnim,
+      stopPredictAnimation: () => endPredictAnim(true),
       updateConnectionSettings: (radius: number, limit: number, thresh: number) => {
+        endPredictAnim(false)
         buildConnections(radius, limit, thresh)
         applyColors()
       },
@@ -1259,6 +1432,11 @@ export default function NeuralVisualizerApp() {
       }
     }
   }, [])
+  const toggleAnimation = () => {
+    if (isAnimating) visualizerRef.current?.stopPredictAnimation()
+    else visualizerRef.current?.startPredictAnimation()
+  }
+
   const resetGrid = () => {
     gridValuesRef.current.fill(0)
     setHasDrawn(false)
@@ -1315,6 +1493,19 @@ export default function NeuralVisualizerApp() {
         <div className="p-4 rounded-xl bg-black/85 backdrop-blur-xl border border-white/20 shadow-[0_4px_30px_rgba(0,0,0,0.8)] flex flex-col gap-3">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold tracking-wider text-neutral-400 uppercase">Draw a letter</span>
+            <div className="flex items-center gap-2">
+            <button
+              onClick={toggleAnimation}
+              disabled={!hasDrawn && !isAnimating}
+              className={`text-xs px-2.5 py-1 rounded-md transition border active:scale-95 disabled:opacity-40 disabled:pointer-events-none ${
+                isAnimating
+                  ? 'bg-white text-black border-white'
+                  : 'bg-neutral-900 hover:bg-neutral-800 text-white border-white/20'
+              }`}
+              title="Replay the forward pass through the active neurons, ending on the predicted letter"
+            >
+              {isAnimating ? '\u25A0 Stop' : '\u25B6 Animate'}
+            </button>
             <button
               onClick={resetGrid}
               className="text-xs px-2.5 py-1 rounded-md bg-neutral-900 hover:bg-neutral-800 text-white transition border border-white/20 active:scale-95"
@@ -1322,6 +1513,7 @@ export default function NeuralVisualizerApp() {
             >
               ↺ Reset
             </button>
+            </div>
           </div>
 
           <div className="flex gap-3">
