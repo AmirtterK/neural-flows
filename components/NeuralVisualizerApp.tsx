@@ -61,47 +61,58 @@ function maxAbsValue(values: number[] | Float32Array): number {
   return max
 }
 
-function centerDrawnPixels(raw: Float32Array): Float32Array {
-  let totalMass = 0
-  let weightedY = 0
-  let weightedX = 0
+// Long side (in px) the drawn letter is scaled to. EMNIST letters are cropped to their
+// bounding box and scaled to fill ~24px of the 28x28 frame, so drawings are matched to that.
+const TARGET_SIZE = 24
 
+// Matches how EMNIST images were prepared: crop to the stroke bounding box, scale the long
+// side to TARGET_SIZE (keeping the aspect ratio), then centre the box in the 28x28 frame.
+function normalizeDrawnPixels(raw: Float32Array): Float32Array {
+  let minR = 28
+  let maxR = -1
+  let minC = 28
+  let maxC = -1
   for (let r = 0; r < 28; r++) {
     for (let c = 0; c < 28; c++) {
-      const v = raw[r * 28 + c]
-      if (v > 0.04) {
-        totalMass += v
-        weightedY += r * v
-        weightedX += c * v
+      if (raw[r * 28 + c] > 0.15) {
+        if (r < minR) minR = r
+        if (r > maxR) maxR = r
+        if (c < minC) minC = c
+        if (c > maxC) maxC = c
       }
     }
   }
+  if (maxR < 0) return raw
 
-  if (totalMass < 1e-4) return raw
+  const h = maxR - minR + 1
+  const w = maxC - minC + 1
+  // A tiny dot/scribble would be blown up into a huge blob, so leave those alone
+  if (Math.max(h, w) < 4) return raw
 
-  const cy = weightedY / totalMass
-  const cx = weightedX / totalMass
-
-  const shiftR = Math.round(13.5 - cy)
-  const shiftC = Math.round(13.5 - cx)
-
-  if (shiftR === 0 && shiftC === 0) return raw
+  const scale = TARGET_SIZE / Math.max(h, w)
+  const newH = Math.max(1, Math.min(28, Math.round(h * scale)))
+  const newW = Math.max(1, Math.min(28, Math.round(w * scale)))
+  const offR = Math.floor((28 - newH) / 2)
+  const offC = Math.floor((28 - newW) / 2)
 
   const out = new Float32Array(784)
-  for (let r = 0; r < 28; r++) {
-    const nr = r + shiftR
-    if (nr >= 0 && nr < 28) {
-      for (let c = 0; c < 28; c++) {
-        const nc = c + shiftC
-        if (nc >= 0 && nc < 28) {
-          out[nr * 28 + nc] = raw[r * 28 + c]
-        }
-      }
+  for (let r = 0; r < newH; r++) {
+    const sr = clamp(minR + (r + 0.5) / scale - 0.5, minR, maxR)
+    const r0 = Math.floor(sr)
+    const r1 = Math.min(maxR, r0 + 1)
+    const fr = sr - r0
+    for (let c = 0; c < newW; c++) {
+      const sc = clamp(minC + (c + 0.5) / scale - 0.5, minC, maxC)
+      const c0 = Math.floor(sc)
+      const c1 = Math.min(maxC, c0 + 1)
+      const fc = sc - c0
+      const top = raw[r0 * 28 + c0] * (1 - fc) + raw[r0 * 28 + c1] * fc
+      const bottom = raw[r1 * 28 + c0] * (1 - fc) + raw[r1 * 28 + c1] * fc
+      out[(offR + r) * 28 + offC + c] = top * (1 - fr) + bottom * fr
     }
   }
   return out
 }
-
 export default function NeuralVisualizerApp() {
   const mountRef = useRef<HTMLDivElement>(null)
 
@@ -943,8 +954,8 @@ export default function NeuralVisualizerApp() {
         return
       }
 
-      // Auto-center drawn strokes by center of mass before passing to MLP
-      const centered = centerDrawnPixels(pixels)
+      // Crop, scale and centre the drawn letter the way EMNIST images were prepared, then feed the MLP
+      const centered = normalizeDrawnPixels(pixels)
 
       const mean = weightsData.normalization.mean
       const std = weightsData.normalization.std
@@ -1155,7 +1166,7 @@ export default function NeuralVisualizerApp() {
         const dist = Math.hypot(r - centerR, c - centerC)
         if (dist > radius) continue
         // Solid core with a soft edge
-        const coverage = Math.min(1, (1 - dist / radius) * 3)
+        const coverage = Math.min(1, (1 - dist / radius) * 2)
         if (coverage <= 0) continue
 
         const idx = r * 28 + c

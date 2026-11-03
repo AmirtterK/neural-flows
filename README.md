@@ -18,8 +18,8 @@ Neural Flows visualizes forward propagation through a multi-layer perceptron (ML
   - Predictions update as the user draws.
 - **Idle pulse animation**
   - With an empty canvas, a light pulse travels from the input layer across every connection to each layer in turn, until all 26 letter nodes flash. It loops, and stops as soon as you start drawing.
-- **Center-of-mass alignment**
-  - Computes the center of mass $(\bar{x}, \bar{y})$ of the drawn strokes and translates it to $(13.5, 13.5)$, improving classification accuracy for off-center input.
+- **EMNIST-style input normalization**
+  - Crops the drawn strokes to their bounding box, scales the long side to 24 px (keeping the aspect ratio) and centers it in the $28 \times 28$ frame, the way EMNIST images were prepared, so letter size and position don't hurt accuracy.
 - **Synapse and neuron inspector**
   - Selecting a neuron or input pixel bar in the 3D scene isolates its incoming and outgoing synapses.
   - Selected connections are highlighted in blue (`#4da6ff`) with a radial selection glow.
@@ -60,8 +60,8 @@ Model weights and biases are bundled as JSON in `data/model_weights.json`.
    - Expanded the output space from 10 digits to 26 uppercase English letters.
    - Reworked the 3D sprite labels and probability distribution display accordingly.
 3. **Training and accuracy**
-   - Trained on the EMNIST Letters dataset as-is, with no data augmentation (no stroke-thickness, dilation, or offset variation).
-   - Added center-of-mass normalization at inference time to compensate for off-center hand-drawn input.
+   - Trained on the EMNIST Letters dataset with GPU data augmentation (rotation, scale, shear, shifts, stroke thickness, blur and binarized strokes) to match finger- and mouse-drawn input.
+   - Added EMNIST-style bounding-box scaling and centering at inference time to compensate for differently sized and off-center hand-drawn input.
 4. **Rendering optimization**
    - Uses `THREE.InstancedMesh` with dynamic buffer attributes for connection cylinders and neuron geometry, sustaining 60 FPS in standard browser viewports.
 5. **Synapse isolation**
@@ -104,7 +104,7 @@ npm run start
 
 ## Retraining the Model
 
-A Google Colab notebook, `train_emnist_colab.ipynb`, is included in the repository. It trains the network on the full EMNIST Letters dataset (145,600 samples) and exports the updated weights file. Training on a free GPU takes approximately 15 seconds. Hyperparameters: AdamW (lr 0.003, weight decay 1e-4), cosine annealing, batch size 256, 15 epochs, cross-entropy loss, and no data augmentation. EMNIST Letters merges upper- and lower-case forms into one class per letter.
+A Google Colab notebook, `train_emnist_colab.ipynb`, is included in the repository. It trains the network on the full EMNIST Letters dataset (145,600 samples) and exports the updated weights file. Training on a free GPU takes a few minutes. Hyperparameters: AdamW (weight decay 1e-4), one-cycle learning rate schedule (max lr 0.004), batch size 256, 80 epochs, cross-entropy loss, GPU data augmentation, and a 5% validation split used to pick the best epoch. The notebook reports clean and augmented test accuracy and the most confused letters, and exports the normalization constants computed from the training data. EMNIST Letters merges upper- and lower-case forms into one class per letter.
 
 ---
 
