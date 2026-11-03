@@ -415,7 +415,7 @@ export default function NeuralVisualizerApp() {
     const PULSE_DUR = 1.0 // seconds for a pulse to cross one set of connections
     const IDLE_LOOP = arch.length * IDLE_STEP
     const IDLE_LINE = { r: 0.01, g: 0.013, b: 0.024 } // dim resting color of connections
-    const IDLE_SPEED = 0.85 // playback speed of the idle animation (1 = original)
+    const IDLE_SPEED = 0.765 // playback speed of the idle animation (1 = original)
     const idleUniform = { value: 0 }
     const pulseUniforms = layers.map(() => ({ value: -10 }))
 
@@ -1060,7 +1060,8 @@ export default function NeuralVisualizerApp() {
 
       const dt = Math.min(0.05, Math.max(0, (time - lastFrameTime) / 1000))
       lastFrameTime = time
-      const idle = !gridValuesRef.current.some((v) => v > 0.02)
+      // Idle animation only plays with an empty canvas AND no selected neuron
+      const idle = !activeSelectedNeuron && !gridValuesRef.current.some((v) => v > 0.02)
       idleBlend += ((idle ? 1 : 0) - idleBlend) * (1 - Math.exp(-6 * dt))
       idleUniform.value = idleBlend
       if (idle) {
