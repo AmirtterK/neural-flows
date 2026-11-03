@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neural Network Visualizer - Alphabet 3D MLP</title>
+    <link rel="icon" href="icon.svg">
+    <link rel="stylesheet" href="./assets/main.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- 2D Grid Overlay -->
+    <div id="overlay2d" class="overlay-2d">
+      <div class="container">
+        <div id="gridContainer" class="grid-container"></div>
+      </div>
+    </div>
+
+    <!-- Reset Button -->
+    <div id="resetButtonContainer" class="reset-button-container">
+        <button id="resetBtn">✖</button>
+    </div>
+
+    <!-- Prediction Chart Overlay -->
+    <div id="predictionOverlay" class="prediction-overlay">
+        <div class="prediction-container">
+            <div id="predictionChart"></div>
+        </div>
+        <div id="networkInfoPanel" class="network-info-panel"></div>
+    </div>
+
+    <!-- Instructions Overlay -->
+    <div id="instructionsOverlay" class="instructions-overlay">
+        <div class="instructions-container">
+            <div class="instructions-content">
+                <p><strong>Drawing:</strong> Click and drag on the grid (Right-click to erase)</p>
+                <p><strong>3D Controls:</strong> • Left drag = rotate • Right drag = pan • Scroll = zoom</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Mobile Instructions Overlay -->
+    <div id="mobileInstructionsOverlay" class="mobile-instructions-overlay">
+        <div class="mobile-instructions-content">
+            <div class="mobile-instructions-title">Touch Controls</div>
+            <ul class="mobile-gesture-list">
+                <li><strong>Draw:</strong> Tap and drag on the grid</li>
+                <li><strong>Rotate:</strong> Drag with one finger</li>
+                <li><strong>Pan:</strong> Move with two fingers</li>
+                <li><strong>Zoom:</strong> Pinch to zoom</li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- Floating Controls -->
+    <div class="floating-controls">
+        <button
+            id="advancedSettingsButton"
+            class="floating-button advanced-settings-button"
+            aria-haspopup="dialog"
+            aria-controls="advancedSettingsModal"
+            type="button"
+        >
+            <span>⚙</span>
+        </button>
+        <button
+            id="infoButton"
+            class="floating-button info-button"
+            aria-haspopup="dialog"
+            aria-controls="infoModal"
+            type="button"
+        >
+            <span>i</span>
+        </button>
+    </div>
+
+    <!-- MNIST Sample Images - Bottom Edge -->
+    <div id="mnistImagesContainer" class="mnist-images-container"></div>
+
+    <!-- Neuron Detail Panel -->
+    <div id="neuronDetailPanel" class="neuron-detail-panel" aria-live="polite"></div>
+
+    <!-- Training Timeline Slider -->
+    <div id="timelineOverlay" class="timeline-overlay hidden">
+        <div class="timeline-container">
+            <div class="timeline-header">
+                <span class="timeline-title">Training Progress</span>
+                <span id="timelineSummary" class="timeline-summary"></span>
+            </div>
+            <input
+                id="timelineSlider"
+                class="timeline-slider"
+                type="range"
+                min="0"
+                value="0"
+                step="1"
+                disabled
+                aria-label="Training progress"
+            >
+            <div class="timeline-meta">
+                <span id="timelineLabel" class="timeline-label"></span>
+                <span id="timelineMetrics" class="timeline-metrics timeline-metrics--empty"></span>
+            </div>
+        </div>
+    </div>
+
+    <a
+      href="https://github.com/Ramakm/NN-visualizer"
+      class="github-link"
+      target="_blank"
+      rel="noopener noreferrer"
+    >
+      https://github.com/Ramakm/NN-visualizer
+    </a>
+
+    <!-- Info Modal -->
+    <div id="infoModal" class="info-modal">
+        <div class="info-modal-content">
+            <div class="info-modal-header">
+                <h3>MNIST Neural Network Visualizer</h3>
+                <button id="closeInfoModal" class="close-modal-btn">×</button>
+            </div>
+            <div class="info-modal-body">
+                <h4>Interactive Neural Network Visualization</h4>
+                <p>This application visualizes a compact Multi-Layer Perceptron (MLP) trained on the MNIST handwritten digit dataset. Draw a digit and watch in real-time as activations propagate through the network layers.</p>
+
+                <h4>How It Works:</h4>
+                <ul>
+                    <li><strong>Draw:</strong> Sketch a digit (0-9) on the 28×28 grid using your mouse</li>
+                    <li><strong>Observe:</strong> Watch how your drawing flows through the network layers in 3D space</li>
+                    <li><strong>Predict:</strong> See the probability distribution for each digit class</li>
+                </ul>
+
+                <h4>Default Network Architecture:</h4>
+                <ul>
+                    <li><strong>Input Layer:</strong> 28×28 pixel grid (784 neurons)</li>
+                    <li><strong>Hidden Layer 1:</strong> 64 neurons with ReLU activation</li>
+                    <li><strong>Hidden Layer 2:</strong> 32 neurons with ReLU activation</li>
+                    <li><strong>Output Layer:</strong> 10 neurons (digits 0-9) with Softmax</li>
+                </ul>
+
+                <h4>Color Coding:</h4>
+                <ul>
+                    <li><strong>Neurons:</strong> Blue tones indicate low/negative activations, warm coral colors show strong positive activations</li>
+                    <li><strong>Connections:</strong> Color intensity represents weight magnitude and contribution strength</li>
+                </ul>
+
+                <h4>Tips:</h4>
+                <ul>
+                    <li>Try different drawing styles to see how the network responds</li>
+                    <li>Use the sample digits for quick testing</li>
+                    <li>Adjust advanced settings to customize the visualization</li>
+                    <li>Explore the 3D view from different angles</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- Advanced Settings Modal -->
+    <div id="advancedSettingsModal" class="advanced-modal">
+        <div class="advanced-modal-content">
+            <div class="advanced-modal-header">
+                <h3>Advanced Settings</h3>
+                <button id="closeAdvancedSettings" class="close-modal-btn">×</button>
+            </div>
+            <div class="advanced-modal-body">
+                <div class="advanced-control">
+                    <label for="connectionLimitSlider" class="advanced-label">
+                        Max Connections Per Neuron
+                    </label>
+                    <div class="advanced-slider">
+                        <input
+                            id="connectionLimitSlider"
+                            type="range"
+                            min="1"
+                            max="64"
+                            step="1"
+                            value="24"
+                        >
+                        <span id="connectionLimitValue" class="advanced-value">24</span>
+                    </div>
+                    <p class="advanced-hint">
+                        Controls how many of the strongest incoming weights are displayed per neuron. Higher values may slow performance.
+                    </p>
+                </div>
+
+                <div class="advanced-control">
+                    <label for="connectionThresholdSlider" class="advanced-label">
+                        Connection Weight Threshold
+                    </label>
+                    <div class="advanced-slider">
+                        <input
+                            id="connectionThresholdSlider"
+                            type="range"
+                            min="0"
+                            max="0.5"
+                            step="0.0005"
+                            value="0"
+                        >
+                        <span id="connectionThresholdValue" class="advanced-value">0.0000</span>
+                    </div>
+                    <p class="advanced-hint">
+                        Hides connections with absolute weight below this threshold. 0 shows all connections.
+                    </p>
+                </div>
+
+                <div class="advanced-control">
+                    <label for="connectionThicknessSlider" class="advanced-label">
+                        Connection Line Thickness
+                    </label>
+                    <div class="advanced-slider">
+                        <input
+                            id="connectionThicknessSlider"
+                            type="range"
+                            min="0.001"
+                            max="0.03"
+                            step="0.001"
+                        >
+                        <span id="connectionThicknessValue" class="advanced-value"></span>
+                    </div>
+                    <p class="advanced-hint">
+                        Adjusts the visual thickness of connection lines in the 3D view.
+                    </p>
+                </div>
+
+                <div class="advanced-control">
+                    <label for="brushThicknessSlider" class="advanced-label">
+                        Drawing Brush Size
+                    </label>
+                    <div class="advanced-slider">
+                        <input
+                            id="brushThicknessSlider"
+                            type="range"
+                            min="0.4"
+                            max="4"
+                            step="0.1"
+                            value="1.4"
+                        >
+                        <span id="brushThicknessValue" class="advanced-value">1.4</span>
+                    </div>
+                    <p class="advanced-hint">
+                        Smaller values create finer lines; larger values fill the grid faster.
+                    </p>
+                </div>
+
+                <div class="advanced-control">
+                    <label for="brushStrengthSlider" class="advanced-label">
+                        Drawing Intensity
+                    </label>
+                    <div class="advanced-slider">
+                        <input
+                            id="brushStrengthSlider"
+                            type="range"
+                            min="0.3"
+                            max="1"
+                            step="0.05"
+                            value="0.95"
+                        >
+                        <span id="brushStrengthValue" class="advanced-value">95%</span>
+                    </div>
+                    <p class="advanced-hint">
+                        Determines how much a brush stroke increases pixel brightness.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="./assets/main.js"></script>
+    <script src="./assets/draggable.js"></script>
+</body>
+</html>

@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- Dark background squircle -->
+  <rect width="64" height="64" rx="16" fill="#000000"/>
+  <rect x="0.5" y="0.5" width="63" height="63" rx="15.5" stroke="#262626" stroke-width="1"/>
+
+  <!-- Faint background synapses -->
+  <line x1="16" y1="18" x2="32" y2="40" stroke="#4da6ff" stroke-width="1.2" stroke-opacity="0.35" stroke-linecap="round"/>
+  <line x1="16" y1="46" x2="32" y2="24" stroke="#4da6ff" stroke-width="1.2" stroke-opacity="0.35" stroke-linecap="round"/>
+  <line x1="32" y1="24" x2="48" y2="46" stroke="#4da6ff" stroke-width="1.2" stroke-opacity="0.35" stroke-linecap="round"/>
+  <line x1="32" y1="40" x2="48" y2="18" stroke="#4da6ff" stroke-width="1.2" stroke-opacity="0.35" stroke-linecap="round"/>
+
+  <!-- Active glowing synapses -->
+  <line x1="16" y1="18" x2="32" y2="24" stroke="#4da6ff" stroke-width="2.2" stroke-opacity="0.9" stroke-linecap="round"/>
+  <line x1="16" y1="32" x2="32" y2="24" stroke="#ffffff" stroke-width="2" stroke-opacity="0.8" stroke-linecap="round"/>
+  <line x1="16" y1="32" x2="32" y2="40" stroke="#4da6ff" stroke-width="2.2" stroke-opacity="0.9" stroke-linecap="round"/>
+  <line x1="16" y1="46" x2="32" y2="40" stroke="#ffffff" stroke-width="2" stroke-opacity="0.8" stroke-linecap="round"/>
+
+  <line x1="32" y1="24" x2="48" y2="18" stroke="#ffffff" stroke-width="2" stroke-opacity="0.8" stroke-linecap="round"/>
+  <line x1="32" y1="24" x2="48" y2="32" stroke="#4da6ff" stroke-width="2.8" stroke-linecap="round"/>
+  <line x1="32" y1="40" x2="48" y2="32" stroke="#4da6ff" stroke-width="2.8" stroke-linecap="round"/>
+  <line x1="32" y1="40" x2="48" y2="46" stroke="#ffffff" stroke-width="2" stroke-opacity="0.8" stroke-linecap="round"/>
+
+  <!-- Nodes (Layer 1: Input) -->
+  <circle cx="16" cy="18" r="3.5" fill="#e5e5e5"/>
+  <circle cx="16" cy="32" r="4.5" fill="#4da6ff"/>
+  <circle cx="16" cy="46" r="3.5" fill="#e5e5e5"/>
+
+  <!-- Nodes (Layer 2: Hidden) -->
+  <circle cx="32" cy="24" r="4.5" fill="#4da6ff"/>
+  <circle cx="32" cy="40" r="4" fill="#ffffff"/>
+
+  <!-- Nodes (Layer 3: Output) -->
+  <circle cx="48" cy="18" r="3.5" fill="#e5e5e5"/>
+  <!-- Highlighted winning output node with glow ring -->
+  <circle cx="48" cy="32" r="6" fill="#4da6ff" fill-opacity="0.3"/>
+  <circle cx="48" cy="32" r="4.5" fill="#4da6ff"/>
+  <circle cx="48" cy="32" r="2" fill="#ffffff"/>
+  <circle cx="48" cy="46" r="3.5" fill="#e5e5e5"/>
+</svg>

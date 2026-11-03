@@ -1,0 +1,12 @@
+html, body { height: 100%; background: #000000; overflow: hidden; }
+
+/* ---------- DOM labels that follow 3D positions (moved by Projector in Scene.tsx) ---------- */
+.labels { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 1; }
+.ov { position: absolute; left: 0; top: 0; visibility: hidden; will-change: transform; pointer-events: none; user-select: none; }
+
+.node-label { font-size: 12px; white-space: nowrap; color: #5d6785; transition: color 0.3s; }
+.node-label.on { color: #cdd5ea; }
+.layer-title { font-size: 14px; letter-spacing: 0.14em; text-transform: uppercase; color: #9aa6c8; white-space: nowrap; }
+.layer-title span { margin-right: 8px; opacity: 0.45; }
+.diverge-label { font-size: 12px; color: #fff; padding: 4px 10px; border-radius: 999px; white-space: nowrap;
+  background: rgba(255, 255, 255, 0.12); border: 1px solid rgba(255, 255, 255, 0.25); }
