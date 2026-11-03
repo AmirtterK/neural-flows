@@ -36,16 +36,12 @@ interface SelectionDetail {
   nextLayerSize: number | null
 }
 
-// Precomputed data for one run of the "Animate" (prediction replay) mode
+// Precomputed data for one run of the "Send" mode (idle animation restricted to the active parts)
 interface AnimPlan {
   top: number // index of the predicted letter
   active: number[][] // per layer: indices of the neurons that take part
-  settled: Float32Array[] // per layer: final node colours (snapshot of the normal view)
-  connSettled: Record<number, Float32Array> // per connection group: final colours
   done: boolean[] // per layer: flash finished
-  revealed: boolean[] // per connection group: already switched on
 }
-
 const LETTERS = weightsData.classes || Array.from('ABCDEFGHIJKLMNOPQRSTUVWXYZ')
 const BRUSH_STRENGTH = 0.95
 
@@ -464,7 +460,7 @@ export default function NeuralVisualizerApp() {
             float pulseBand = pulseD >= 0.0 ? exp(-pulseD * 16.0) : exp(pulseD * 70.0);
             float litMask = 1.0;
             #ifdef USE_COLOR
-            litMask = mix(1.0, step(0.1, max(vColor.r, max(vColor.g, vColor.b))), uAnim);
+            litMask = mix(1.0, step(0.01, max(vColor.r, max(vColor.g, vColor.b))), uAnim);
             #endif
             diffuseColor.rgb += vec3(0.55, 0.8, 1.0) * pulseBand * 1.6 * (uIdle + uAnim) * litMask;`
           )
@@ -952,15 +948,16 @@ export default function NeuralVisualizerApp() {
       })
     }
 
-    // ---- Animate mode: replays the forward pass through the ACTIVE neurons/connections only and
-    // ends on the predicted letter. It is mutually exclusive with idle mode (idle needs an empty
-    // canvas and no running animation) and with neuron selection (selecting/Esc/drawing/reset/
-    // presets/settings all call endPredictAnim first).
-    const ANIM_STEP = 0.9 // seconds per layer hop
-    const ANIM_DELAY = 0.2 // pulse starts this long after its source layer flashes
-    const ANIM_PULSE = 0.7 // seconds for a pulse to cross a set of connections
-    const ANIM_HOLD = 1.8 // how long the predicted letter stays lit at the end
-    const ANIM_TOTAL = (arch.length - 1) * ANIM_STEP + ANIM_HOLD
+    // ---- Send mode: exactly the idle animation (same timing, flashes, pulses and label bounce),
+    // but only for the neurons/connections that take part in the current prediction, ending on the
+    // predicted letter. Connections keep the dim idle colour (no green/red). It is mutually exclusive
+    // with idle mode (idle needs an empty canvas and no running animation) and with neuron selection
+    // (selecting/Esc/drawing/reset/presets/settings all call endPredictAnim first).
+    const ANIM_TOTAL = IDLE_LOOP // one idle loop
+    const ANIM_HI = [0.75, 0.88, 1.0] // hidden/output flash colour (same as idle)
+    const ANIM_INPUT_HI = [0.9, 0.95, 1.0] // input flash colour (same as idle)
+    const ANIM_INPUT_REST = [0.5, 0.55, 0.65] // drawn pixels stay visible between flashes
+    const ANIM_TOP = [0.0, 0.96, 0.63] // the predicted letter ends neon green
     const predictAnim: { active: boolean; t: number; plan: AnimPlan | null } = { active: false, t: 0, plan: null }
 
     const endPredictAnim = (restore = true) => {
@@ -970,7 +967,6 @@ export default function NeuralVisualizerApp() {
       animUniform.value = 0
       pulseUniforms.forEach((u) => (u.value = -10))
       outputLabels.forEach((sprite) => sprite.scale.set(0.38, 0.38, 0.38))
-      if (!activeSelectedNeuron) selectionGlowSprite.visible = false
       if (restore) applyColors()
       setIsAnimating(false)
     }
@@ -981,42 +977,50 @@ export default function NeuralVisualizerApp() {
       const outVals = lastActivations[last]
       if (!outVals || !gridValuesRef.current.some((v) => v > 0.02)) return
       if (activeSelectedNeuron) clearSelection()
-      applyColors() // make sure every mesh holds its normal colours before they are snapshotted
+      applyColors() // connection colours now tell us which connections matter
 
       let top = 0
       for (let i = 1; i < outVals.length; i++) if (outVals[i] > outVals[top]) top = i
 
-      const plan: AnimPlan = { top, active: [], settled: [], connSettled: {}, done: [], revealed: [] }
+      const plan: AnimPlan = { top, active: [], done: [] }
       layerMeshes.forEach((lm, lIdx) => {
         const vals = lastActivations[lIdx]
         const active: number[] = []
         if (lIdx === 0) {
           for (let i = 0; i < vals.length; i++) if (gridValuesRef.current[i] > 0.02) active.push(i)
         } else if (lIdx === last) {
-          active.push(top) // only the predicted letter lights up
+          active.push(top) // only the predicted letter takes part
         } else {
           const scale = maxAbsValue(vals) || 1
           for (let i = 0; i < vals.length; i++) if (vals[i] / scale > 0.05) active.push(i)
         }
-        const settled = Float32Array.from(lm.mesh.instanceColor!.array as Float32Array)
-        if (lIdx === last) {
-          settled[top * 3] = 0.0
-          settled[top * 3 + 1] = 0.96
-          settled[top * 3 + 2] = 0.63
-        }
         plan.active[lIdx] = active
-        plan.settled[lIdx] = settled
         plan.done[lIdx] = false
-        // everything starts dark; active nodes light up when the wave reaches their layer
-        const base = lm.type === 'input' ? 0.06 : lm.type === 'output' ? 0.1 : 0.08
+
+        // everything starts at its idle resting colour; drawn input pixels stay visible
+        const base = lIdx === 0 ? 0.06 : lIdx === last ? 0.1 : 0.08
         for (let i = 0; i < lm.positions.length; i++) lm.mesh.setColorAt(i, tempColor.setRGB(base, base, base))
+        if (lIdx === 0) {
+          active.forEach((i) => lm.mesh.setColorAt(i, tempColor.setRGB(ANIM_INPUT_REST[0], ANIM_INPUT_REST[1], ANIM_INPUT_REST[2])))
+        }
         lm.mesh.instanceColor!.needsUpdate = true
       })
+
+      // Connections keep the dim idle colour; inactive ones are black so the shader skips their pulse
       connectionGroups.forEach((g) => {
-        plan.connSettled[g.sourceLayer] = Float32Array.from(g.mesh.instanceColor!.array as Float32Array)
-        plan.revealed[g.sourceLayer] = false
+        const arr = g.mesh.instanceColor!.array as Float32Array
         for (let i = 0; i < g.connections.length; i++) {
-          g.mesh.setColorAt(i, tempColor.setRGB(IDLE_LINE.r, IDLE_LINE.g, IDLE_LINE.b))
+          const lit = arr[i * 3] > 0.1 || arr[i * 3 + 1] > 0.1 || arr[i * 3 + 2] > 0.1
+          const onPath = g.sourceLayer !== last - 1 || g.connections[i].targetIndex === top
+          if (lit && onPath) {
+            arr[i * 3] = IDLE_LINE.r
+            arr[i * 3 + 1] = IDLE_LINE.g
+            arr[i * 3 + 2] = IDLE_LINE.b
+          } else {
+            arr[i * 3] = 0
+            arr[i * 3 + 1] = 0
+            arr[i * 3 + 2] = 0
+          }
         }
         g.mesh.instanceColor!.needsUpdate = true
       })
@@ -1034,68 +1038,45 @@ export default function NeuralVisualizerApp() {
       if (!plan) return
       const last = arch.length - 1
 
-      // Connections: a light pulse crosses each group; active connections switch on as it starts.
-      // The shader masks out black (inactive) connections while animUniform is 1.
-      connectionGroups.forEach((g) => {
-        const l = g.sourceLayer
-        const p = (t - (l * ANIM_STEP + ANIM_DELAY)) / ANIM_PULSE
-        pulseUniforms[l].value = p >= 0 && p <= 1.08 ? p : -10
-        if (p >= 0 && !plan.revealed[l]) {
-          plan.revealed[l] = true
-          const colors = g.mesh.instanceColor!
-          const arr = colors.array as Float32Array
-          arr.set(plan.connSettled[l])
-          if (l === last - 1) {
-            // final hop: only the connections into the predicted letter
-            g.connections.forEach((c, i) => {
-              if (c.targetIndex !== plan.top) {
-                arr[i * 3] = 0
-                arr[i * 3 + 1] = 0
-                arr[i * 3 + 2] = 0
-              }
-            })
-          }
-          colors.needsUpdate = true
-        }
+      // Pulses: identical timing to idle mode
+      pulseUniforms.forEach((u, l) => {
+        const p = (t - (l * IDLE_STEP + 0.3)) / PULSE_DUR
+        u.value = p >= 0 && p <= 1.08 ? p : -10
       })
 
-      // Nodes: active ones flash, then settle on their normal activation colour
+      // Node flashes: identical timing to idle mode, active neurons only
       layerMeshes.forEach((lm, lIdx) => {
         if (plan.done[lIdx]) return
-        const start = lIdx * ANIM_STEP
+        const start = lIdx * IDLE_STEP
         if (t < start) return
-        const settling = t - start < 1.0
-        const f = settling ? flashAt(t, start) : 0
-        const hi = lIdx === 0 ? [0.9, 0.95, 1.0] : lIdx === last ? [0.8, 1.0, 0.92] : [0.75, 0.88, 1.0]
-        const settled = plan.settled[lIdx]
+        const tt = t - start
+        const finished = tt > 1.0
+        const isInput = lIdx === 0
+        const isOutput = lIdx === last
+        const from = isInput ? ANIM_INPUT_REST : isOutput ? [0.1, 0.1, 0.1] : [0.08, 0.08, 0.08]
+        const hi = isInput ? ANIM_INPUT_HI : ANIM_HI
+        const rest = isOutput ? ANIM_TOP : from
+        const amt = finished ? 1 : isOutput ? Math.min(1, tt * 2) : 0
+        const f = finished ? 0 : flashAt(t, start)
         plan.active[lIdx].forEach((i) => {
-          const r = settled[i * 3]
-          const g = settled[i * 3 + 1]
-          const b = settled[i * 3 + 2]
+          const r = from[0] + (rest[0] - from[0]) * amt
+          const g = from[1] + (rest[1] - from[1]) * amt
+          const b = from[2] + (rest[2] - from[2]) * amt
           lm.mesh.setColorAt(i, tempColor.setRGB(r + (hi[0] - r) * f, g + (hi[1] - g) * f, b + (hi[2] - b) * f))
         })
         lm.mesh.instanceColor!.needsUpdate = true
-        if (!settling) plan.done[lIdx] = true
-      })
-
-      // Predicted letter: enlarged label + glow until the animation ends
-      const outStart = last * ANIM_STEP
-      if (t >= outStart) {
-        const f = flashAt(t, outStart)
-        const label = outputLabels[plan.top]
-        if (label) {
-          const s = 0.38 * (1.3 + 0.6 * f)
-          label.scale.set(s, s, s)
+        if (isOutput) {
+          const label = outputLabels[plan.top]
+          if (label) {
+            const s = 0.38 * (1 + 0.3 * f) // same label bounce as idle, predicted letter only
+            label.scale.set(s, s, s)
+          }
         }
-        const glow = Math.max(outputNodeRadius * 3.5, 0.25) * (1 + 0.5 * f)
-        selectionGlowSprite.position.copy(layerMeshes[last].positions[plan.top])
-        selectionGlowSprite.scale.set(glow, glow, 1)
-        selectionGlowSprite.visible = true
-      }
+        if (finished) plan.done[lIdx] = true
+      })
 
       if (t >= ANIM_TOTAL) endPredictAnim()
     }
-
     // Forward propagation function
     const propagate = (pixels: Float32Array) => {
       endPredictAnim(false) // any change to the drawing cancels the Animate mode
@@ -1258,7 +1239,7 @@ export default function NeuralVisualizerApp() {
       }
 
       if (predictAnim.active) {
-        predictAnim.t += dt
+        predictAnim.t += dt * IDLE_SPEED
         updatePredictAnim(predictAnim.t)
       }
 
@@ -1502,9 +1483,9 @@ export default function NeuralVisualizerApp() {
                   ? 'bg-white text-black border-white'
                   : 'bg-neutral-900 hover:bg-neutral-800 text-white border-white/20'
               }`}
-              title="Replay the forward pass through the active neurons, ending on the predicted letter"
+              title="Send the drawing through the network: the idle animation for the active neurons only, ending on the predicted letter"
             >
-              {isAnimating ? '\u25A0 Stop' : '\u25B6 Animate'}
+              {isAnimating ? '\u25A0 Stop' : '\u25B6 Send'}
             </button>
             <button
               onClick={resetGrid}
