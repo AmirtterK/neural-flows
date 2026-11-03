@@ -129,6 +129,9 @@ export default function NeuralVisualizerApp() {
   const gridValuesRef = useRef<Float32Array>(new Float32Array(784))
   const isDrawingRef = useRef(false)
   const drawModeRef = useRef<'draw' | 'erase'>('draw')
+  const gridRef = useRef<HTMLDivElement>(null)
+  const lastCellRef = useRef<{ r: number; c: number } | null>(null)
+  const rafRef = useRef<number | null>(null)
 
   // Load and setup Three.js scene
   useEffect(() => {
@@ -151,7 +154,7 @@ export default function NeuralVisualizerApp() {
     camera.position.set(-18, 6, 18)
     // Pull the camera back on narrow (portrait) viewports so the whole network fits
     if (width / height < 1.6) {
-      camera.position.multiplyScalar(Math.min(2, 1.6 / (width / height)))
+      camera.position.multiplyScalar(Math.max(1, Math.min(2, 1.6 / (width / height)) * 0.85))
     }
 
     // Renderer
@@ -1137,10 +1140,10 @@ export default function NeuralVisualizerApp() {
     })
   }
 
-  const applyBrushAt = (centerR: number, centerC: number, mode: 'draw' | 'erase') => {
+  // Stamps one brush at a cell. Uses max() (draw) / multiply (erase) rather than additive
+  // blending, so stroke intensity doesn't depend on how many pointer events hit a cell.
+  const applyBrushAt = (centerR: number, centerC: number, mode: 'draw' | 'erase'): boolean => {
     const radius = mode === 'erase' ? brushSize * 1.6 : brushSize
-    const strength = mode === 'erase' ? -BRUSH_STRENGTH : BRUSH_STRENGTH
-    const softness = 0.45
     const radCeil = Math.ceil(radius)
     const vals = gridValuesRef.current
     let modified = false
@@ -1151,50 +1154,100 @@ export default function NeuralVisualizerApp() {
         if (c < 0 || c >= 28) continue
         const dist = Math.hypot(r - centerR, c - centerC)
         if (dist > radius) continue
-        const falloff = 1 - dist / radius
-        if (falloff <= 0) continue
-        const influence = Math.pow(falloff, 1 + softness * 2)
-        const delta = strength * influence
-        if (Math.abs(delta) < 1e-3) continue
+        // Solid core with a soft edge
+        const coverage = Math.min(1, (1 - dist / radius) * 3)
+        if (coverage <= 0) continue
 
         const idx = r * 28 + c
         const cur = vals[idx]
-        const next = clamp(cur + delta, 0, 1)
+        let next = cur
+        if (mode === 'draw') {
+          next = Math.max(cur, BRUSH_STRENGTH * coverage)
+        } else {
+          next = cur * (1 - coverage)
+          if (next < 0.02) next = 0
+        }
         if (next !== cur) {
           vals[idx] = next
           modified = true
         }
       }
     }
+    return modified
+  }
 
-    if (modified) {
+  // Repaint the pad + run the network at most once per animation frame
+  const scheduleFlush = () => {
+    if (rafRef.current !== null) return
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = null
       updateCellColors()
       visualizerRef.current?.propagate(gridValuesRef.current)
+    })
+  }
+
+  // Brushes every cell on the line from the previous point to this one, so fast strokes leave no gaps
+  const strokeTo = (r: number, c: number, mode: 'draw' | 'erase') => {
+    const last = lastCellRef.current
+    let modified = false
+    if (!last) {
+      modified = applyBrushAt(r, c, mode)
+    } else {
+      const dr = r - last.r
+      const dc = c - last.c
+      const steps = Math.max(Math.abs(dr), Math.abs(dc))
+      if (steps === 0) return
+      for (let i = 1; i <= steps; i++) {
+        const sr = Math.round(last.r + (dr * i) / steps)
+        const sc = Math.round(last.c + (dc * i) / steps)
+        if (applyBrushAt(sr, sc, mode)) modified = true
+      }
     }
+    lastCellRef.current = { r, c }
+    if (modified) scheduleFlush()
   }
 
   // Pointer events for sketchpad
   const handlePointerAction = (e: React.PointerEvent) => {
-    const element = document.elementFromPoint(e.clientX, e.clientY)
-    if (!element) return
-    const cell = element.closest('[data-cell-idx]') as HTMLElement
-    if (!cell) return
-    const idx = Number(cell.dataset.cellIdx)
-    if (Number.isNaN(idx)) return
+    const grid = gridRef.current
+    if (!grid) return
+    const rect = grid.getBoundingClientRect()
+    const inset = 3 // border + padding around the cells
+    const cellW = (rect.width - inset * 2) / 28
+    const cellH = (rect.height - inset * 2) / 28
 
-    const r = Math.floor(idx / 28)
-    const c = idx % 28
-    applyBrushAt(r, c, drawModeRef.current)
+    // Coalesced events contain the real finger path between frames
+    const native = e.nativeEvent
+    const samples = typeof native.getCoalescedEvents === 'function' ? native.getCoalescedEvents() : []
+    const points = samples.length ? samples : [native]
+
+    for (const pt of points) {
+      const c = Math.floor((pt.clientX - rect.left - inset) / cellW)
+      const r = Math.floor((pt.clientY - rect.top - inset) / cellH)
+      if (r < 0 || r > 27 || c < 0 || c > 27) {
+        lastCellRef.current = null
+        continue
+      }
+      strokeTo(r, c, drawModeRef.current)
+    }
   }
 
   useEffect(() => {
-    const onWindowPointerUp = () => {
+    const endStroke = () => {
       isDrawingRef.current = false
+      lastCellRef.current = null
     }
-    window.addEventListener('pointerup', onWindowPointerUp)
-    return () => window.removeEventListener('pointerup', onWindowPointerUp)
+    window.addEventListener('pointerup', endStroke)
+    window.addEventListener('pointercancel', endStroke)
+    return () => {
+      window.removeEventListener('pointerup', endStroke)
+      window.removeEventListener('pointercancel', endStroke)
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current)
+        rafRef.current = null
+      }
+    }
   }, [])
-
   const resetGrid = () => {
     gridValuesRef.current.fill(0)
     setHasDrawn(false)
@@ -1269,11 +1322,13 @@ export default function NeuralVisualizerApp() {
                 gridTemplateColumns: 'repeat(28, 1fr)',
                 gridTemplateRows: 'repeat(28, 1fr)',
               }}
+              ref={gridRef}
               onContextMenu={(e) => e.preventDefault()}
               onPointerDown={(e) => {
                 e.preventDefault()
                 isDrawingRef.current = true
                 drawModeRef.current = e.button === 2 ? 'erase' : 'draw'
+                lastCellRef.current = null
                 handlePointerAction(e)
               }}
               onPointerMove={(e) => {
