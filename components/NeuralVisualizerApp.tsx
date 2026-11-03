@@ -1283,8 +1283,8 @@ export default function NeuralVisualizerApp() {
             </div>
           </div>
           <div className="text-[11px] pt-1 border-t border-white/5 flex justify-between">
-            <span className="text-neutral-400">Total Weights:</span>
-            <span className="font-semibold text-white">53,090 parameters</span>
+            <span className="text-neutral-400">Total Parameters:</span>
+            <span className="font-semibold text-white">53,178</span>
           </div>
         </div>
       </div>
