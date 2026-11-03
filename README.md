@@ -2,7 +2,7 @@
 
 An interactive 3D neural network visualizer built with Next.js, Three.js, and Tailwind CSS.
 
-Neural Flows visualizes forward propagation through a multi-layer perceptron (MLP) trained to classify uppercase letters (A-Z, 26 classes). Inference runs entirely in the browser and requires no Python, PyTorch, or backend services.
+Neural Flows visualizes forward propagation through a multi-layer perceptron (MLP) trained to classify handwritten letters (A-Z, 26 classes). Inference runs entirely in the browser and requires no Python, PyTorch, or backend services.
 
 ---
 
@@ -16,6 +16,8 @@ Neural Flows visualizes forward propagation through a multi-layer perceptron (ML
 - **Client-side inference**
   - Forward propagation is computed in JavaScript using typed arrays and rendered with WebGL.
   - Predictions update as the user draws.
+- **Idle pulse animation**
+  - With an empty canvas, a light pulse travels from the input layer across every connection to each layer in turn, until all 26 letter nodes flash. It loops, and stops as soon as you start drawing.
 - **Center-of-mass alignment**
   - Computes the center of mass $(\bar{x}, \bar{y})$ of the drawn strokes and translates it to $(13.5, 13.5)$, improving classification accuracy for off-center input.
 - **Synapse and neuron inspector**
@@ -24,7 +26,7 @@ Neural Flows visualizes forward propagation through a multi-layer perceptron (ML
   - An inspection card displays the pre-activation, activation, bias, and top synapse contributions.
 - **Monochrome interface**
   - Minimal black-and-white UI.
-  - Connection cylinders are black by default and are colored during active drawing (green for excitatory, red for inhibitory).
+  - Connection cylinders rest in a dim blue-gray and are colored during active drawing (green for excitatory, red for inhibitory).
   - Custom vector favicon.
 - **26-letter preset palette**
   - A compact four-column grid of preset buttons for testing letters A through Z.
@@ -44,6 +46,8 @@ Input (784) -> Dense(64, ReLU) -> Dense(32, ReLU) -> Dense(26, Softmax)
 | Hidden 2 | 32 | ReLU | 832 |
 | Output | 26 | Softmax | N/A (predicted letter) |
 
+Total: 53,178 parameters (53,056 weights + 122 biases).
+
 Model weights and biases are bundled as JSON in `data/model_weights.json`.
 
 ---
@@ -56,8 +60,8 @@ Model weights and biases are bundled as JSON in `data/model_weights.json`.
    - Expanded the output space from 10 digits to 26 uppercase English letters.
    - Reworked the 3D sprite labels and probability distribution display accordingly.
 3. **Training and accuracy**
-   - Trained on augmented letterforms with varying stroke thickness, dilation, and spatial offset.
-   - Added center-of-mass normalization before inference to reduce positional sensitivity.
+   - Trained on the EMNIST Letters dataset as-is, with no data augmentation (no stroke-thickness, dilation, or offset variation).
+   - Added center-of-mass normalization at inference time to compensate for off-center hand-drawn input.
 4. **Rendering optimization**
    - Uses `THREE.InstancedMesh` with dynamic buffer attributes for connection cylinders and neuron geometry, sustaining 60 FPS in standard browser viewports.
 5. **Synapse isolation**
@@ -100,7 +104,7 @@ npm run start
 
 ## Retraining the Model
 
-A Google Colab notebook, `train_emnist_colab.ipynb`, is included in the repository. It trains the network on the full EMNIST Letters dataset (145,600 samples) and exports the updated weights file. Training on a free GPU takes approximately 15 seconds.
+A Google Colab notebook, `train_emnist_colab.ipynb`, is included in the repository. It trains the network on the full EMNIST Letters dataset (145,600 samples) and exports the updated weights file. Training on a free GPU takes approximately 15 seconds. Hyperparameters: AdamW (lr 0.003, weight decay 1e-4), cosine annealing, batch size 256, 15 epochs, cross-entropy loss, and no data augmentation. EMNIST Letters merges upper- and lower-case forms into one class per letter.
 
 ---
 
@@ -108,7 +112,7 @@ A Google Colab notebook, `train_emnist_colab.ipynb`, is included in the reposito
 
 - **Framework:** Next.js (App Router), React
 - **3D graphics:** Three.js, OrbitControls
-- **Styling:** Tailwind CSS, Lucide Icons
+- **Styling:** Tailwind CSS
 - **Language:** TypeScript
 
 ---

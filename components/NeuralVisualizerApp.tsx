@@ -37,6 +37,7 @@ interface SelectionDetail {
 }
 
 const LETTERS = weightsData.classes || Array.from('ABCDEFGHIJKLMNOPQRSTUVWXYZ')
+const BRUSH_STRENGTH = 0.95
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
@@ -109,8 +110,6 @@ export default function NeuralVisualizerApp() {
   const [connectionThreshold, setConnectionThreshold] = useState(0.0)
   const [connectionThickness, setConnectionThickness] = useState(0.0035)
   const [brushSize, setBrushSize] = useState(1.5)
-  const [brushStrength, setBrushStrength] = useState(0.95)
-  const [showFps, setShowFps] = useState(true)
   const [fps, setFps] = useState(60)
 
   // Modals
@@ -411,6 +410,35 @@ export default function NeuralVisualizerApp() {
     }
     const connectionGroups: ConnectionGroup[] = []
 
+    // Idle pulse animation settings (plays while the canvas is empty)
+    const IDLE_STEP = 1.3 // seconds per layer hop (flash + travel)
+    const PULSE_DUR = 1.0 // seconds for a pulse to cross one set of connections
+    const IDLE_LOOP = arch.length * IDLE_STEP
+    const IDLE_LINE = { r: 0.025, g: 0.035, b: 0.06 } // dim resting color of connections
+    const idleUniform = { value: 0 }
+    const pulseUniforms = layers.map(() => ({ value: -10 }))
+
+    // Adds a light band that travels from source (t=0) to target (t=1) along each connection cylinder
+    const attachPulse = (mat: THREE.MeshBasicMaterial, layerIdx: number) => {
+      mat.onBeforeCompile = (shader) => {
+        shader.uniforms.uPulse = pulseUniforms[layerIdx]
+        shader.uniforms.uIdle = idleUniform
+        shader.vertexShader = shader.vertexShader
+          .replace('#include <common>', '#include <common>\nvarying float vT;')
+          .replace('#include <begin_vertex>', '#include <begin_vertex>\nvT = position.y + 0.5;')
+        shader.fragmentShader = shader.fragmentShader
+          .replace('#include <common>', '#include <common>\nvarying float vT;\nuniform float uPulse;\nuniform float uIdle;')
+          .replace(
+            '#include <color_fragment>',
+            `#include <color_fragment>
+            float pulseD = uPulse - vT;
+            float pulseBand = pulseD >= 0.0 ? exp(-pulseD * 16.0) : exp(pulseD * 70.0);
+            diffuseColor.rgb += vec3(0.55, 0.8, 1.0) * pulseBand * 1.6 * uIdle;`
+          )
+      }
+      mat.customProgramCacheKey = () => 'connection-pulse'
+    }
+
     const findImportantConnections = (
       layer: LayerMeta,
       limit: number,
@@ -461,6 +489,7 @@ export default function NeuralVisualizerApp() {
         if (!selected.length) return
 
         const mesh = new THREE.InstancedMesh(baseGeom.clone(), baseMat.clone(), selected.length)
+        attachPulse(mesh.material as THREE.MeshBasicMaterial, lIdx)
         mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
 
         const colorAttr = new THREE.InstancedBufferAttribute(new Float32Array(selected.length * 3), 3)
@@ -480,7 +509,7 @@ export default function NeuralVisualizerApp() {
           tempObject.quaternion.copy(quat)
           tempObject.updateMatrix()
           mesh.setMatrixAt(instIdx, tempObject.matrix)
-          mesh.setColorAt(instIdx, tempColor.setRGB(0.0, 0.0, 0.0))
+          mesh.setColorAt(instIdx, tempColor.setRGB(IDLE_LINE.r, IDLE_LINE.g, IDLE_LINE.b))
         })
         mesh.instanceMatrix.needsUpdate = true
         mesh.instanceColor.needsUpdate = true
@@ -759,7 +788,6 @@ export default function NeuralVisualizerApp() {
           } else if (isInput) {
             const raw = gridValuesRef.current[i] || 0
             if (raw > 0.02) {
-              const v = clamp(raw, 0, 1)
               tempColor.setRGB(0.9, 0.95, 1.0)
             } else {
               tempColor.setRGB(0.06, 0.06, 0.06)
@@ -794,12 +822,12 @@ export default function NeuralVisualizerApp() {
         if (l.mesh.instanceColor) l.mesh.instanceColor.needsUpdate = true
       })
 
-      // Update Connection Colors: ALL BLACK BY DEFAULT, ONLY HIGHLIGHT ACTIVE WHILE DRAWING
+      // Update Connection Colors: dim resting color when idle (pulse animation runs on top), green/red while drawing
       if (!activeSelectedNeuron) {
         if (!hasActiveDrawing) {
           connectionGroups.forEach((g) => {
             for (let i = 0; i < g.connections.length; i++) {
-              g.mesh.setColorAt(i, tempColor.setRGB(0.0, 0.0, 0.0))
+              g.mesh.setColorAt(i, tempColor.setRGB(IDLE_LINE.r, IDLE_LINE.g, IDLE_LINE.b))
             }
             if (g.mesh.instanceColor) g.mesh.instanceColor.needsUpdate = true
           })
@@ -846,6 +874,47 @@ export default function NeuralVisualizerApp() {
           })
         }
       }
+    }
+
+    // Idle animation: light pulses travel input -> hidden 1 -> hidden 2 -> letters, then loop
+    const flashAt = (t: number, start: number) => {
+      const tt = t - start
+      return tt < 0 ? 0 : Math.min(1, tt * 14) * Math.exp(-tt * 4)
+    }
+
+    const updateIdleVisuals = (t: number) => {
+      pulseUniforms.forEach((u, l) => {
+        const p = (t - (l * IDLE_STEP + 0.3)) / PULSE_DUR
+        u.value = p >= 0 && p <= 1.08 ? p : -10
+      })
+
+      layerMeshes.forEach((lm, lIdx) => {
+        const f = flashAt(t, lIdx * IDLE_STEP)
+        const isInput = lm.type === 'input'
+        const base = isInput ? 0.06 : lm.type === 'output' ? 0.1 : 0.08
+        const hi = isInput ? [0.9, 0.95, 1.0] : [0.75, 0.88, 1.0]
+        for (let i = 0; i < lm.positions.length; i++) {
+          if (
+            activeSelectedNeuron &&
+            activeSelectedNeuron.layerIndex === lIdx &&
+            activeSelectedNeuron.neuronIndex === i
+          ) {
+            tempColor.copy(highlightColor)
+          } else {
+            tempColor.setRGB(
+              base + (hi[0] - base) * f,
+              base + (hi[1] - base) * f,
+              base + (hi[2] - base) * f
+            )
+          }
+          lm.mesh.setColorAt(i, tempColor)
+        }
+        if (lm.mesh.instanceColor) lm.mesh.instanceColor.needsUpdate = true
+        if (lm.type === 'output') {
+          const s = 0.38 * (1 + 0.3 * f)
+          outputLabels.forEach((sprite) => sprite.scale.set(s, s, s))
+        }
+      })
     }
 
     // Forward propagation function
@@ -980,9 +1049,33 @@ export default function NeuralVisualizerApp() {
     // Animation Loop
     let frameCount = 0
     let lastFpsUpdate = performance.now()
+    let lastFrameTime = performance.now()
+    let idleClock = 0
+    let idleBlend = 0
+    let wasIdle = false
 
     const animate = (time: number) => {
       if (isDisposed) return
+
+      const dt = Math.min(0.05, Math.max(0, (time - lastFrameTime) / 1000))
+      lastFrameTime = time
+      const idle = !gridValuesRef.current.some((v) => v > 0.02)
+      idleBlend += ((idle ? 1 : 0) - idleBlend) * (1 - Math.exp(-6 * dt))
+      idleUniform.value = idleBlend
+      if (idle) {
+        if (!wasIdle) {
+          wasIdle = true
+          idleClock = 0
+        }
+        idleClock = (idleClock + dt) % IDLE_LOOP
+        updateIdleVisuals(idleClock)
+      } else if (wasIdle) {
+        wasIdle = false
+        pulseUniforms.forEach((u) => (u.value = -10))
+        outputLabels.forEach((sprite) => sprite.scale.set(0.38, 0.38, 0.38))
+        applyColors()
+      }
+
       controls.update()
       renderer.render(scene, camera)
 
@@ -1044,7 +1137,7 @@ export default function NeuralVisualizerApp() {
 
   const applyBrushAt = (centerR: number, centerC: number, mode: 'draw' | 'erase') => {
     const radius = mode === 'erase' ? brushSize * 1.6 : brushSize
-    const strength = mode === 'erase' ? -brushStrength : brushStrength
+    const strength = mode === 'erase' ? -BRUSH_STRENGTH : BRUSH_STRENGTH
     const softness = 0.45
     const radCeil = Math.ceil(radius)
     const vals = gridValuesRef.current
@@ -1405,11 +1498,9 @@ export default function NeuralVisualizerApp() {
           i
         </button>
 
-        {showFps && (
-          <div className="px-3 py-1.5 rounded-full bg-black/80 backdrop-blur-md border border-white/15 text-[11px] font-mono text-neutral-400">
-            {fps} FPS
-          </div>
-        )}
+        <div className="px-3 py-1.5 rounded-full bg-black/80 backdrop-blur-md border border-white/15 text-[11px] font-mono text-neutral-400">
+          {fps} FPS
+        </div>
       </div>
 
       {/* Settings Modal */}
