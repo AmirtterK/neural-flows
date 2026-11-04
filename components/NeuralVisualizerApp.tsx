@@ -126,7 +126,7 @@ export default function NeuralVisualizerApp() {
   const [maxConnections, setMaxConnections] = useState(24)
   const [connectionThreshold, setConnectionThreshold] = useState(0.0)
   const [connectionThickness, setConnectionThickness] = useState(0.0035)
-  const [brushSize, setBrushSize] = useState(1.5)
+  const [brushSize, setBrushSize] = useState(1.1)
   const [fps, setFps] = useState(60)
 
   // Modals
